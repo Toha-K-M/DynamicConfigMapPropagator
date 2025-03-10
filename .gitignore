@@ -1,0 +1,43 @@
+# IDE and editor files
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Go modules and vendor directory
+vendor/
+go.sum
+go.mod
+
+# Operator SDK specific files and directories
+.operator-sdk/
+deploy/
+config/manager/certs/ # if you generate certs locally
+
+# Kubernetes manifests and related files
+*.yml
+*.json
+*.patch
+
+# Temporary files and directories
+tmp/
+*.log
+
+# Sensitive information
+*.key
+*.pem
+*.crt
+*.password
+*.secret
+*.env
+
+# Operating system specific files
+*-darwin-*
+*-windows-*
+
+# other generated files
+*.out

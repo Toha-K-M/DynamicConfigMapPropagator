@@ -1,0 +1,12 @@
+apiVersion: syncer.custom/v1alpha1
+kind: ConfigMapSyncer
+metadata:
+  labels:
+    app.kubernetes.io/name: configmapsyncer
+    app.kubernetes.io/instance: configmapsyncer-sample
+    app.kubernetes.io/part-of: dynamicconfigmappropagator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: dynamicconfigmappropagator
+  name: configmapsyncer-sample
+spec:
+  # TODO(user): Add fields here

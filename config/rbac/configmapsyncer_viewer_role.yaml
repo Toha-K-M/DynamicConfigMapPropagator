@@ -1,0 +1,27 @@
+# permissions for end users to view configmapsyncers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: configmapsyncer-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: dynamicconfigmappropagator
+    app.kubernetes.io/part-of: dynamicconfigmappropagator
+    app.kubernetes.io/managed-by: kustomize
+  name: configmapsyncer-viewer-role
+rules:
+- apiGroups:
+  - syncer.custom
+  resources:
+  - configmapsyncers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - syncer.custom
+  resources:
+  - configmapsyncers/status
+  verbs:
+  - get

@@ -1,0 +1,14 @@
+apiVersion: syncer.custom/v1alpha1
+kind: ConfigMapSyncer
+metadata:
+  name: configmapsyncer-example
+  namespace: "default"
+spec:
+  syncStrategy: Overwrite
+  masterConfigMap:
+    name: "master-cm-one"
+    namespace: "mark-one"
+    labels: {}
+  targetNamespaces:
+    - "mark-two"
+    - "mark-three"
