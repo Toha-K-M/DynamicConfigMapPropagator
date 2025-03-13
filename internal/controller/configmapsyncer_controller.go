@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -67,6 +69,14 @@ func (r *ConfigMapSyncerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		r.logger.Info("Reconciling ConfigMap", "name", req.Name, "namespace", req.Namespace)
 		return r.handleConfigMapReconciliation(&configmap)
 
+	} else if req.Namespace == "" && req.Name != "" {
+		ns := corev1.Namespace{}
+		err = r.Get(r.ctx, req.NamespacedName, &ns)
+		if err == nil {
+			r.logger.Info("Reconciling Namespace", "name", req.Name)
+			return r.handleNamespaceReconciliation(&ns)
+
+		}
 	} else if errors.IsNotFound(err) {
 		r.logger.Info("Reconciling Missing ConfigMap", "name", req.Name, "namespace", req.Namespace)
 		return r.handleMissingConfigMapReconciliation(req.Name, req.Namespace)
@@ -107,6 +117,19 @@ func (r *ConfigMapSyncerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				},
 			}),
 		).
+		Watches(
+			&corev1.Namespace{},
+			&handler.EnqueueRequestForObject{},
+			builder.WithPredicates(predicate.Funcs{
+				CreateFunc: func(e event.CreateEvent) bool {
+					ns, ok := e.Object.(*corev1.Namespace)
+					if !ok {
+						return false
+					}
+					return r.doWatchNamespace(ns)
+				},
+			}),
+		).
 		Complete(r)
 }
 
@@ -123,6 +146,27 @@ func (r *ConfigMapSyncerReconciler) doWatchConfigMap(cm *corev1.ConfigMap) bool 
 		} else {
 			for _, namespace := range cr.Spec.TargetNamespaces {
 				if cm.Namespace == namespace && cm.Name == cr.Spec.MasterConfigMap.Name && (cm.Immutable == nil || *cm.Immutable == false) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (r *ConfigMapSyncerReconciler) doWatchNamespace(ns *corev1.Namespace) bool {
+	crList := &syncerv1alpha1.ConfigMapSyncerList{}
+	err := r.List(context.Background(), crList)
+	if err != nil {
+		return false
+	}
+
+	for _, cr := range crList.Items {
+		if cr.Spec.MasterConfigMap.Namespace == ns.Name {
+			return true
+		} else {
+			for _, namespace := range cr.Spec.TargetNamespaces {
+				if ns.Name == namespace {
 					return true
 				}
 			}
@@ -224,6 +268,48 @@ func (r *ConfigMapSyncerReconciler) handleConfigMapReconciliation(configmap *cor
 	return reconcile.Result{}, nil
 }
 
+func (r *ConfigMapSyncerReconciler) handleNamespaceReconciliation(ns *corev1.Namespace) (reconcile.Result, error) {
+	syncerList := syncerv1alpha1.ConfigMapSyncerList{}
+	if err := r.List(r.ctx, &syncerList); err != nil {
+		r.logger.Error(err, "Failed to list ConfigMapSyncer resources")
+		return reconcile.Result{}, err
+	}
+
+	for _, syncer := range syncerList.Items {
+		masterConfigmap := &corev1.ConfigMap{}
+		err := r.Get(r.ctx, client.ObjectKey{Name: syncer.Spec.MasterConfigMap.Name, Namespace: syncer.Spec.MasterConfigMap.Namespace}, masterConfigmap)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				r.logger.Error(err, "Master ConfigMap Not Found!", "name", syncer.Spec.MasterConfigMap.Name, "namespace", syncer.Spec.MasterConfigMap.Namespace, "syncer", syncer.Name, "syncerNamespace", syncer.Namespace)
+				return reconcile.Result{}, client.IgnoreNotFound(err)
+			} else {
+				r.logger.Error(err, "Failed to Get Master ConfigMap!", "name", syncer.Spec.MasterConfigMap.Name, "namespace", syncer.Spec.MasterConfigMap.Namespace, "syncer", syncer.Name, "syncerNamespace", syncer.Namespace)
+				return reconcile.Result{Requeue: true}, err
+			}
+		}
+
+		for _, targetNamespace := range syncer.Spec.TargetNamespaces {
+			if ns.Name == targetNamespace {
+				syncer.Status.Data = []syncerv1alpha1.SyncerData{}
+				syncerData, err := r.syncConfigMap(masterConfigmap, ns.Name, &syncer)
+				if err != nil {
+					r.logger.Error(err, "Failed to sync ConfigMap to namespace!", "namespace", ns.Name, "syncer", syncer.Name, "syncerNamespace", syncer.Namespace)
+				}
+				if syncerData != nil {
+					syncer.Status.Data = append(syncer.Status.Data, *syncerData)
+					syncer.Status.LastUpdateTime = time.Now().Format(time.RFC3339)
+					err = r.Status().Update(r.ctx, &syncer)
+					if err != nil {
+						r.logger.Error(err, "Failed to update status")
+					}
+				}
+			}
+		}
+	}
+
+	return reconcile.Result{}, nil
+}
+
 func (r *ConfigMapSyncerReconciler) handleMissingConfigMapReconciliation(configMapName string, namespace string) (reconcile.Result, error) {
 	syncerList := syncerv1alpha1.ConfigMapSyncerList{}
 	if err := r.List(r.ctx, &syncerList); err != nil {
@@ -269,14 +355,23 @@ func (r *ConfigMapSyncerReconciler) handleMissingConfigMapReconciliation(configM
 }
 
 func (r *ConfigMapSyncerReconciler) syncConfigMap(masterConfigmap *corev1.ConfigMap, targetNamespace string, syncer *syncerv1alpha1.ConfigMapSyncer) (*syncerv1alpha1.SyncerData, error) {
+	data := &syncerv1alpha1.SyncerData{}
+	data.Namespace = targetNamespace
+	if !r.isNamespaceExists(targetNamespace) {
+		r.logger.Info("namespace missing", "namespace", targetNamespace)
+		data.Action = syncerv1alpha1.SyncerDataActionCreate
+		data.Status = syncerv1alpha1.SyncerDataStatusFailed
+		errorMessage := fmt.Sprintf("namespace %s does not exists", targetNamespace)
+		data.Error = &errorMessage
+		return data, errors.NewBadRequest(fmt.Sprintf("namespace %s does not exists", targetNamespace))
+	}
+
 	targetConfigmap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      masterConfigmap.Name,
 			Namespace: targetNamespace,
 		},
 	}
-	data := &syncerv1alpha1.SyncerData{}
-	data.Namespace = targetNamespace
 	if err := r.Get(r.ctx, client.ObjectKeyFromObject(targetConfigmap), targetConfigmap); err != nil && errors.IsNotFound(err) {
 		// Create Configmap
 		data.Action = syncerv1alpha1.SyncerDataActionCreate
@@ -313,7 +408,10 @@ func (r *ConfigMapSyncerReconciler) syncConfigMap(masterConfigmap *corev1.Config
 			}
 		}
 	}
-	return nil, nil
+	r.logger.Info("no changes", "namespace", targetNamespace)
+	data.Status = syncerv1alpha1.SyncerDataStatusSuccess
+	data.Action = syncerv1alpha1.SyncerDataActionNoChange
+	return data, nil
 }
 
 func (r *ConfigMapSyncerReconciler) syncConfigMapData(targetConfigMap *corev1.ConfigMap, masterConfigmap *corev1.ConfigMap, syncStrategy string) (map[string]string, map[string][]byte) {
@@ -377,3 +475,29 @@ func (r *ConfigMapSyncerReconciler) syncConfigMapData(targetConfigMap *corev1.Co
 		return masterConfigmap.Data, masterConfigmap.BinaryData
 	}
 }
+
+func (r *ConfigMapSyncerReconciler) isNamespaceExists(namespace string) bool {
+	ns := &corev1.Namespace{}
+	err := r.Get(r.ctx, types.NamespacedName{Name: namespace}, ns)
+	if err == nil {
+		return true
+	}
+	return false
+}
+
+//func (r *ConfigMapSyncerReconciler) isNamespaceExists(namespace string) bool {
+//	counter := 0
+//	for {
+//		if counter > 3 {
+//			break
+//		}
+//		ns := &corev1.Namespace{}
+//		err := r.Get(r.ctx, types.NamespacedName{Name: namespace}, ns)
+//		if err == nil {
+//			return true
+//		}
+//		counter++
+//		time.Sleep(2 * time.Second)
+//	}
+//	return false
+//}

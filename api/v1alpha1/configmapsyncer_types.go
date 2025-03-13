@@ -21,16 +21,13 @@ import (
 )
 
 const (
-	ConfigMapSyncerStateProgressing = "Progressing"
-	ConfigMapSyncerStateSucceeded   = "Succeeded"
-	ConfigMapSyncerStateFailed      = "Failed"
-
 	ConfigMapSyncStrategyOverwrite       = "Overwrite"
 	ConfigMapSyncStrategyAppend          = "Append"
 	ConfigMapSyncStrategySelectiveUpdate = "Selective"
 
-	SyncerDataActionCreate = "Create"
-	SyncerDataActionUpdate = "Update"
+	SyncerDataActionCreate   = "Create"
+	SyncerDataActionUpdate   = "Update"
+	SyncerDataActionNoChange = "NoChange"
 
 	SyncerDataStatusSuccess = "Success"
 	SyncerDataStatusFailed  = "Failed"

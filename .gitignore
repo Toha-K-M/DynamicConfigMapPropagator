@@ -10,8 +10,8 @@ Thumbs.db
 
 # Go modules and vendor directory
 vendor/
-go.sum
-go.mod
+#go.sum
+#go.mod
 
 # Operator SDK specific files and directories
 .operator-sdk/

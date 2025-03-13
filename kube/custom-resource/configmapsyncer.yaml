@@ -2,7 +2,7 @@ apiVersion: syncer.custom/v1alpha1
 kind: ConfigMapSyncer
 metadata:
   name: configmapsyncer-example
-  namespace: "default"
+#  namespace: "default"
 spec:
   syncStrategy: Overwrite
   masterConfigMap:
