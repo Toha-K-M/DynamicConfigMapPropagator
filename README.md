@@ -1,5 +1,7 @@
 Video Demo: https://asciinema.org/a/8oRlcN3eumfXZcgEkbKClyqFw
 
+examples are in kube-example folder
+
 # Dynamic ConfigMap Propagator
 
 ## Create Operator
