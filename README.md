@@ -1,3 +1,5 @@
+Video Demo: https://asciinema.org/a/8oRlcN3eumfXZcgEkbKClyqFw
+
 # Dynamic ConfigMap Propagator
 
 ## Create Operator
