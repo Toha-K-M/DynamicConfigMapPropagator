@@ -187,14 +187,33 @@ func (r *ConfigMapSyncerReconciler) handleSyncerReconciliation(syncer *syncerv1a
 			return reconcile.Result{Requeue: true}, err
 		}
 	}
-	syncer.Status.Data = []syncerv1alpha1.SyncerData{}
+	if syncer.Status.Data == nil {
+		syncer.Status.Data = make(map[string]syncerv1alpha1.SyncerData)
+	} else {
+		removeKey := []string{}
+	outerLoop:
+		for key, _ := range syncer.Status.Data {
+			for _, ns := range syncer.Spec.TargetNamespaces {
+				if key == ns {
+					continue outerLoop
+				}
+			}
+			removeKey = append(removeKey, key)
+		}
+		for _, key := range removeKey {
+			if _, ok := syncer.Status.Data[key]; ok {
+				delete(syncer.Status.Data, key)
+			}
+		}
+	}
+
 	for _, targetNamespace := range syncer.Spec.TargetNamespaces {
 		syncerData, err := r.syncConfigMap(masterConfigmap, targetNamespace, syncer)
 		if err != nil {
 			r.logger.Error(err, "Failed to sync ConfigMap to namespace!", "namespace", targetNamespace)
 		}
 		if syncerData != nil {
-			syncer.Status.Data = append(syncer.Status.Data, *syncerData)
+			syncer.Status.Data[targetNamespace] = *syncerData
 		}
 	}
 	if len(syncer.Status.Data) > 0 {
@@ -220,14 +239,16 @@ func (r *ConfigMapSyncerReconciler) handleConfigMapReconciliation(configmap *cor
 		if syncer.Spec.MasterConfigMap.Name == configmap.Name && syncer.Spec.MasterConfigMap.Namespace == configmap.Namespace {
 			// Master ConfigMap Has Been Reconciled
 			masterConfigmap = configmap
-			syncer.Status.Data = []syncerv1alpha1.SyncerData{}
+			if syncer.Status.Data == nil {
+				syncer.Status.Data = make(map[string]syncerv1alpha1.SyncerData)
+			}
 			for _, targetNamespace := range syncer.Spec.TargetNamespaces {
 				syncerData, err := r.syncConfigMap(masterConfigmap, targetNamespace, &syncer)
 				if err != nil {
 					r.logger.Error(err, "Failed to sync ConfigMap to namespace!", "namespace", targetNamespace, "syncer", syncer.Name, "syncerNamespace", syncer.Namespace)
 				}
 				if syncerData != nil {
-					syncer.Status.Data = append(syncer.Status.Data, *syncerData)
+					syncer.Status.Data[targetNamespace] = *syncerData
 				}
 			}
 			if len(syncer.Status.Data) > 0 {
@@ -249,13 +270,15 @@ func (r *ConfigMapSyncerReconciler) handleConfigMapReconciliation(configmap *cor
 					return reconcile.Result{Requeue: true}, err
 				}
 			}
-			syncer.Status.Data = []syncerv1alpha1.SyncerData{}
+			if syncer.Status.Data == nil {
+				syncer.Status.Data = make(map[string]syncerv1alpha1.SyncerData)
+			}
 			syncerData, err := r.syncConfigMap(masterConfigmap, configmap.Namespace, &syncer)
 			if err != nil {
 				r.logger.Error(err, "Failed to sync ConfigMap to namespace!", "namespace", configmap.Namespace, "syncer", syncer.Name, "syncerNamespace", syncer.Namespace)
 			}
 			if syncerData != nil {
-				syncer.Status.Data = append(syncer.Status.Data, *syncerData)
+				syncer.Status.Data[configmap.Namespace] = *syncerData
 				syncer.Status.LastUpdateTime = time.Now().Format(time.RFC3339)
 				err = r.Status().Update(r.ctx, &syncer)
 				if err != nil {
@@ -290,13 +313,15 @@ func (r *ConfigMapSyncerReconciler) handleNamespaceReconciliation(ns *corev1.Nam
 
 		for _, targetNamespace := range syncer.Spec.TargetNamespaces {
 			if ns.Name == targetNamespace {
-				syncer.Status.Data = []syncerv1alpha1.SyncerData{}
+				if syncer.Status.Data == nil {
+					syncer.Status.Data = make(map[string]syncerv1alpha1.SyncerData)
+				}
 				syncerData, err := r.syncConfigMap(masterConfigmap, ns.Name, &syncer)
 				if err != nil {
 					r.logger.Error(err, "Failed to sync ConfigMap to namespace!", "namespace", ns.Name, "syncer", syncer.Name, "syncerNamespace", syncer.Namespace)
 				}
 				if syncerData != nil {
-					syncer.Status.Data = append(syncer.Status.Data, *syncerData)
+					syncer.Status.Data[ns.Name] = *syncerData
 					syncer.Status.LastUpdateTime = time.Now().Format(time.RFC3339)
 					err = r.Status().Update(r.ctx, &syncer)
 					if err != nil {
@@ -335,13 +360,15 @@ func (r *ConfigMapSyncerReconciler) handleMissingConfigMapReconciliation(configM
 					return reconcile.Result{Requeue: true}, err
 				}
 			}
-			syncer.Status.Data = []syncerv1alpha1.SyncerData{}
+			if syncer.Status.Data == nil {
+				syncer.Status.Data = make(map[string]syncerv1alpha1.SyncerData)
+			}
 			syncerData, err := r.syncConfigMap(masterConfigmap, namespace, &syncer)
 			if err != nil {
 				r.logger.Error(err, "Failed to sync ConfigMap to namespace!", "namespace", namespace, "syncer", syncer.Name, "syncerNamespace", syncer.Namespace)
 			}
 			if syncerData != nil {
-				syncer.Status.Data = append(syncer.Status.Data, *syncerData)
+				syncer.Status.Data[namespace] = *syncerData
 				syncer.Status.LastUpdateTime = time.Now().Format(time.RFC3339)
 				err = r.Status().Update(r.ctx, &syncer)
 				if err != nil {
@@ -357,12 +384,14 @@ func (r *ConfigMapSyncerReconciler) handleMissingConfigMapReconciliation(configM
 func (r *ConfigMapSyncerReconciler) syncConfigMap(masterConfigmap *corev1.ConfigMap, targetNamespace string, syncer *syncerv1alpha1.ConfigMapSyncer) (*syncerv1alpha1.SyncerData, error) {
 	data := &syncerv1alpha1.SyncerData{}
 	data.Namespace = targetNamespace
+	data.LastUpdateTime = time.Now().Format(time.RFC3339)
 	if !r.isNamespaceExists(targetNamespace) {
 		r.logger.Info("namespace missing", "namespace", targetNamespace)
 		data.Action = syncerv1alpha1.SyncerDataActionCreate
 		data.Status = syncerv1alpha1.SyncerDataStatusFailed
 		errorMessage := fmt.Sprintf("namespace %s does not exists", targetNamespace)
 		data.Error = &errorMessage
+
 		return data, errors.NewBadRequest(fmt.Sprintf("namespace %s does not exists", targetNamespace))
 	}
 
@@ -409,9 +438,7 @@ func (r *ConfigMapSyncerReconciler) syncConfigMap(masterConfigmap *corev1.Config
 		}
 	}
 	r.logger.Info("no changes", "namespace", targetNamespace)
-	data.Status = syncerv1alpha1.SyncerDataStatusSuccess
-	data.Action = syncerv1alpha1.SyncerDataActionNoChange
-	return data, nil
+	return nil, nil
 }
 
 func (r *ConfigMapSyncerReconciler) syncConfigMapData(targetConfigMap *corev1.ConfigMap, masterConfigmap *corev1.ConfigMap, syncStrategy string) (map[string]string, map[string][]byte) {

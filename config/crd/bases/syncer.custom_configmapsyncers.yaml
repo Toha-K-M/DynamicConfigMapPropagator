@@ -68,18 +68,20 @@ spec:
             description: ConfigMapSyncerStatus defines the observed state of ConfigMapSyncer
             properties:
               data:
-                items:
+                additionalProperties:
                   properties:
                     action:
                       type: string
                     error:
+                      type: string
+                    lastUpdateTime:
                       type: string
                     namespace:
                       type: string
                     status:
                       type: string
                   type: object
-                type: array
+                type: object
               lastUpdateTime:
                 type: string
             type: object

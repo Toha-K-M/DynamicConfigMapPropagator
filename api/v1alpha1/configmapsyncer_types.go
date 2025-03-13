@@ -52,16 +52,17 @@ type ConfigMapSyncerSpec struct {
 }
 
 type SyncerData struct {
-	Namespace string  `json:"namespace,omitempty"`
-	Action    string  `json:"action,omitempty"`
-	Status    string  `json:"status,omitempty"`
-	Error     *string `json:"error,omitempty"`
+	Namespace      string  `json:"namespace,omitempty"`
+	Action         string  `json:"action,omitempty"`
+	Status         string  `json:"status,omitempty"`
+	Error          *string `json:"error,omitempty"`
+	LastUpdateTime string  `json:"lastUpdateTime,omitempty"`
 }
 
 // ConfigMapSyncerStatus defines the observed state of ConfigMapSyncer
 type ConfigMapSyncerStatus struct {
-	LastUpdateTime string       `json:"lastUpdateTime,omitempty"`
-	Data           []SyncerData `json:"data,omitempty"`
+	LastUpdateTime string                `json:"lastUpdateTime,omitempty"`
+	Data           map[string]SyncerData `json:"data,omitempty"`
 }
 
 //+kubebuilder:object:root=true
